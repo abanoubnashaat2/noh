@@ -116,8 +116,9 @@ const App = () => {
         const usersRef = ref(db, 'users');
         onValue(usersRef, (snapshot) => {
             const data = snapshot.val();
-            if (data) {
-                const usersList = Object.values(data) as User[];
+            if (data && typeof data === 'object') {
+                // Sanitize data: Ensure items have id and name
+                const usersList = Object.values(data).filter((u: any) => u && typeof u === 'object' && u.id && u.name) as User[];
                 setLeaderboardData(usersList);
                 
                 // Sync Score

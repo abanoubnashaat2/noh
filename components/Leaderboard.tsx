@@ -1,15 +1,20 @@
 import React from 'react';
-import { User, LeaderboardEntry } from '../types';
+import { User } from '../types';
 import { AVATARS } from '../constants';
 
 interface LeaderboardProps {
   currentUser: User;
-  data: User[]; // In real app, this would be a sorted list from backend
+  data: User[];
 }
 
 const Leaderboard: React.FC<LeaderboardProps> = ({ currentUser, data }) => {
-  // Sort data desc by score, if equal, simple mock tie-break
-  const sortedData = [...data].sort((a, b) => b.score - a.score);
+  // Safe guard: Ensure data is an array
+  const safeData = Array.isArray(data) ? data : [];
+
+  // Sort data desc by score. Filter out invalid users to prevent crashes.
+  const sortedData = [...safeData]
+    .filter(u => u && typeof u === 'object' && u.id)
+    .sort((a, b) => (b.score || 0) - (a.score || 0));
 
   return (
     <div className="p-4 h-full overflow-y-auto">
@@ -19,7 +24,10 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ currentUser, data }) => {
 
       <div className="space-y-3">
         {sortedData.map((user, index) => {
-          const isMe = user.id === currentUser.id;
+          // Extra safety check although filtered above
+          if (!user) return null;
+
+          const isMe = currentUser && user.id === currentUser.id;
           let rankColor = "bg-white border-slate-100";
           let badge = null;
 
@@ -36,27 +44,37 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ currentUser, data }) => {
 
           if (isMe) rankColor += " border-2 border-primary ring-2 ring-blue-100";
 
+          // Safely access properties
+          const displayName = user.name || "مستخدم مجهول";
+          const displayId = user.id ? (user.id.length > 4 ? user.id.slice(-4) : user.id) : "####";
+          const avatar = AVATARS[user.avatarId] || "👤";
+
           return (
             <div 
-                key={user.id} 
+                key={user.id || index} 
                 className={`flex items-center p-3 rounded-2xl shadow-sm border ${rankColor} transition-all`}
             >
               <div className="w-8 font-bold text-slate-400 text-center">{index + 1}</div>
               <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-2xl relative">
-                {AVATARS[user.avatarId] || "👤"}
+                {avatar}
                 {badge && <span className="absolute -top-1 -right-1 text-xs">{badge}</span>}
               </div>
               <div className="flex-grow pr-4">
                 <div className="font-bold text-slate-800 flex items-center gap-2">
-                    {user.name}
+                    {displayName}
                     {isMe && <span className="text-[10px] bg-primary text-white px-2 rounded-full">أنا</span>}
                 </div>
-                <div className="text-xs text-slate-400 font-mono">{user.id.slice(-4)}</div>
+                <div className="text-xs text-slate-400 font-mono">{displayId}</div>
               </div>
-              <div className="font-black text-xl text-primary">{user.score}</div>
+              <div className="font-black text-xl text-primary">{user.score || 0}</div>
             </div>
           );
         })}
+        {sortedData.length === 0 && (
+            <div className="text-center text-slate-400 py-10">
+                لا يوجد متسابقين حتى الآن
+            </div>
+        )}
       </div>
     </div>
   );
