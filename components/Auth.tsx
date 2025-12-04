@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { User, View } from '../types';
-import { TRIP_CODE_VALID, AVATARS, ADMIN_CODE } from '../constants';
+import { AVATARS, ADMIN_CODE } from '../constants';
 
 interface AuthProps {
   onLogin: (user: User) => void;
+  dynamicTripCode: string; // New Prop
 }
 
-const Auth: React.FC<AuthProps> = ({ onLogin }) => {
+const Auth: React.FC<AuthProps> = ({ onLogin, dynamicTripCode }) => {
   const [step, setStep] = useState<'PHONE' | 'DETAILS'>('PHONE');
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
@@ -41,7 +42,8 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
       return;
     }
 
-    if (code.toUpperCase() !== TRIP_CODE_VALID) {
+    // Check against the dynamic code passed from App.tsx
+    if (code.toUpperCase() !== dynamicTripCode) {
       setError('كود الرحلة غير صحيح');
       return;
     }

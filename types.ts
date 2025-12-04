@@ -41,3 +41,10 @@ export interface LeaderboardEntry {
   avatarId: number;
   score: number;
 }
+
+export interface AdminMessage {
+  id: string;
+  senderName: string;
+  text: string;
+  timestamp: number;
+}
