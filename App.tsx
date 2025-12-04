@@ -45,6 +45,15 @@ const App = () => {
   const [msgText, setMsgText] = useState('');
   const [adminMessages, setAdminMessages] = useState<AdminMessage[]>([]);
   
+  // Confirmation Modal State (For Delete Actions)
+  const [confirmModal, setConfirmModal] = useState<{
+      isOpen: boolean;
+      title: string;
+      message: string;
+      onConfirm: () => void;
+  }>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
+  const [isLoadingAction, setIsLoadingAction] = useState(false);
+
   // Admin State
   const [questionsList, setQuestionsList] = useState<Question[]>(() => {
     try {
@@ -66,7 +75,7 @@ const App = () => {
     difficulty: 'متوسط'
   });
   
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false); // For single question delete
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [showQR, setShowQR] = useState(false);
   const [justSentId, setJustSentId] = useState<string | null>(null);
@@ -166,7 +175,6 @@ const App = () => {
                     }
                 }
             } else {
-                 // Changed from MOCK_LEADERBOARD to empty array to correctly reflect "No Users" after a reset
                  setLeaderboardData([]);
             }
         });
@@ -352,49 +360,56 @@ const App = () => {
       }
   };
 
-  const clearMessages = async () => {
-      if (!db) {
-          alert("خطأ: لا يوجد اتصال بقاعدة البيانات. تأكد من إعدادات الاتصال.");
-          return;
-      }
-      if (window.confirm("هل أنت متأكد تماماً من مسح كل الرسائل؟ لا يمكن التراجع.")) {
-          try {
-              await remove(ref(db, 'messages'));
-              alert("تم مسح الرسائل بنجاح ✅");
-          } catch (error: any) {
-              console.error("Delete Error", error);
-              if (error.code === 'PERMISSION_DENIED') {
-                  alert("خطأ: ليس لديك صلاحية الحذف. يرجى تعديل الـ Rules في Firebase Console إلى 'true' للكتابة.");
-              } else {
-                  alert("حدث خطأ أثناء المسح: " + error.message);
+  // --- Secure Delete Handlers using Modal ---
+  const handleClearMessagesClick = () => {
+      if (!db) return alert("خطأ: لا يوجد اتصال بقاعدة البيانات");
+      setConfirmModal({
+          isOpen: true,
+          title: "مسح كل الرسائل",
+          message: "هل أنت متأكد تماماً من حذف جميع رسائل المتسابقين؟ لا يمكن التراجع عن هذا الإجراء.",
+          onConfirm: async () => {
+              setIsLoadingAction(true);
+              try {
+                  await remove(ref(db, 'messages'));
+                  setConfirmModal(prev => ({...prev, isOpen: false}));
+                  alert("تم مسح الرسائل بنجاح ✅");
+              } catch (error: any) {
+                  console.error("Delete Error", error);
+                  if (error.code === 'PERMISSION_DENIED') alert("خطأ: ليس لديك صلاحية الحذف. راجع إعدادات Firebase Rules.");
+                  else alert("حدث خطأ أثناء المسح: " + error.message);
+              } finally {
+                  setIsLoadingAction(false);
               }
           }
-      }
+      });
   };
 
-  const handleResetLeaderboard = async () => {
-      if (!db) {
-          alert("خطأ: لا يوجد اتصال بقاعدة البيانات");
-          return;
-      }
-      if (window.confirm("⚠️ تحذير خطير: سيتم حذف جميع المستخدمين وتصفير النقاط والبدء من جديد. هل أنت متأكد؟")) {
-          try {
-              // Reset Users
-              await remove(ref(db, 'users'));
-              // Also close any active question to be safe
-              await set(ref(db, 'activeQuestion'), null);
-              
-              setLeaderboardData([]);
-              alert("تم تصفير الترتيب وحذف المستخدمين بنجاح ✅\nيمكن للمتسابقين الدخول الآن من جديد.");
-          } catch (error: any) {
-              console.error("Reset Error", error);
-              if (error.code === 'PERMISSION_DENIED') {
-                   alert("خطأ: ليس لديك صلاحية الحذف. تأكد من قواعد الأمان (Rules) في Firebase.");
-              } else {
-                   alert("فشل الحذف: " + error.message);
+  const handleResetLeaderboardClick = () => {
+      if (!db) return alert("خطأ: لا يوجد اتصال بقاعدة البيانات");
+      setConfirmModal({
+          isOpen: true,
+          title: "تصفير الترتيب (حذف الكل)",
+          message: "⚠️ تحذير: سيتم حذف جميع المستخدمين وجميع النتائج لبدء جولة جديدة. هل أنت متأكد؟",
+          onConfirm: async () => {
+              setIsLoadingAction(true);
+              try {
+                  // Reset Users
+                  await remove(ref(db, 'users'));
+                  // Close active question
+                  await set(ref(db, 'activeQuestion'), null);
+                  
+                  setLeaderboardData([]);
+                  setConfirmModal(prev => ({...prev, isOpen: false}));
+                  alert("تم تصفير الترتيب وحذف المستخدمين بنجاح ✅");
+              } catch (error: any) {
+                  console.error("Reset Error", error);
+                  if (error.code === 'PERMISSION_DENIED') alert("خطأ: ليس لديك صلاحية الحذف. راجع إعدادات Firebase Rules.");
+                  else alert("فشل الحذف: " + error.message);
+              } finally {
+                  setIsLoadingAction(false);
               }
           }
-      }
+      });
   };
 
   // CRUD
@@ -507,7 +522,7 @@ const App = () => {
                 <div className="bg-white p-4 rounded-xl shadow-md border border-slate-200 mb-6">
                     <div className="flex justify-between items-center mb-3">
                          <h3 className="font-bold text-lg text-slate-700">📬 رسائل المتسابقين</h3>
-                         {adminMessages.length > 0 && <button onClick={clearMessages} className="text-xs text-red-500 underline font-bold px-2 py-1 hover:bg-red-50 rounded">مسح الكل</button>}
+                         {adminMessages.length > 0 && <button onClick={handleClearMessagesClick} className="text-xs text-red-500 underline font-bold px-2 py-1 hover:bg-red-50 rounded">مسح الكل</button>}
                     </div>
                     <div className="max-h-60 overflow-y-auto space-y-2">
                         {adminMessages.length === 0 ? <p className="text-center text-sm text-slate-400 py-4">لا توجد رسائل جديدة</p> : adminMessages.map(msg => (
@@ -531,6 +546,34 @@ const App = () => {
                     <button onClick={() => setShowSetup(true)} className="text-[10px] text-blue-500 underline w-full text-center">تغيير إعدادات الرابط</button>
                 </div>
                 
+                {/* Confirmation Modal */}
+                {confirmModal.isOpen && (
+                    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                        <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+                            <h3 className="text-lg font-bold text-slate-800 mb-2">{confirmModal.title}</h3>
+                            <p className="text-slate-600 mb-6">{confirmModal.message}</p>
+                            <div className="flex gap-3">
+                                <button 
+                                    onClick={() => setConfirmModal({ ...confirmModal, isOpen: false })} 
+                                    className="flex-1 py-3 rounded-xl bg-slate-100 text-slate-700 font-bold"
+                                    disabled={isLoadingAction}
+                                >
+                                    إلغاء
+                                </button>
+                                <button 
+                                    onClick={() => {
+                                        confirmModal.onConfirm();
+                                    }} 
+                                    className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold flex justify-center items-center"
+                                    disabled={isLoadingAction}
+                                >
+                                    {isLoadingAction ? <span className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></span> : "تأكيد"}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {showDeleteModal && (
                     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
                         <div className="bg-white rounded-2xl p-6 w-full max-w-xs shadow-2xl">
@@ -582,7 +625,7 @@ const App = () => {
                     <div className="flex items-center gap-3 mt-2">
                         {isConfigured && <button onClick={clearManualConfig} className="text-[10px] text-slate-400 underline">Reset Config</button>}
                         <button 
-                            onClick={handleResetLeaderboard} 
+                            onClick={handleResetLeaderboardClick} 
                             className="text-xs bg-red-100 text-red-600 px-3 py-2 rounded-lg font-bold border border-red-200 hover:bg-red-200 transition-colors"
                         >
                             🗑️ تصفير الترتيب (حذف الكل)
