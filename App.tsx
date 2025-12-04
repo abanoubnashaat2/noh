@@ -166,7 +166,8 @@ const App = () => {
                     }
                 }
             } else {
-                 setLeaderboardData(MOCK_LEADERBOARD);
+                 // Changed from MOCK_LEADERBOARD to empty array to correctly reflect "No Users" after a reset
+                 setLeaderboardData([]);
             }
         });
 
@@ -351,32 +352,48 @@ const App = () => {
       }
   };
 
-  const clearMessages = () => {
+  const clearMessages = async () => {
       if (!db) {
           alert("خطأ: لا يوجد اتصال بقاعدة البيانات. تأكد من إعدادات الاتصال.");
           return;
       }
       if (window.confirm("هل أنت متأكد تماماً من مسح كل الرسائل؟ لا يمكن التراجع.")) {
-          remove(ref(db, 'messages'))
-            .then(() => alert("تم مسح الرسائل بنجاح ✅"))
-            .catch((error) => alert("حدث خطأ أثناء المسح: " + error.message));
+          try {
+              await remove(ref(db, 'messages'));
+              alert("تم مسح الرسائل بنجاح ✅");
+          } catch (error: any) {
+              console.error("Delete Error", error);
+              if (error.code === 'PERMISSION_DENIED') {
+                  alert("خطأ: ليس لديك صلاحية الحذف. يرجى تعديل الـ Rules في Firebase Console إلى 'true' للكتابة.");
+              } else {
+                  alert("حدث خطأ أثناء المسح: " + error.message);
+              }
+          }
       }
   };
 
-  const handleResetLeaderboard = () => {
+  const handleResetLeaderboard = async () => {
       if (!db) {
           alert("خطأ: لا يوجد اتصال بقاعدة البيانات");
           return;
       }
       if (window.confirm("⚠️ تحذير خطير: سيتم حذف جميع المستخدمين وتصفير النقاط والبدء من جديد. هل أنت متأكد؟")) {
-          remove(ref(db, 'users'))
-            .then(() => {
-                // Also clear messages for a fresh start? Maybe optional.
-                // Reset local state if I am the admin observing
-                setLeaderboardData([]);
-                alert("تم تصفير الترتيب وحذف المستخدمين بنجاح ✅\nيمكن للمتسابقين الدخول الآن من جديد.");
-            })
-            .catch((error) => alert("فشل الحذف: " + error.message));
+          try {
+              // Reset Users
+              await remove(ref(db, 'users'));
+              // Also close any active question to be safe
+              await set(ref(db, 'activeQuestion'), null);
+              
+              setLeaderboardData([]);
+              alert("تم تصفير الترتيب وحذف المستخدمين بنجاح ✅\nيمكن للمتسابقين الدخول الآن من جديد.");
+          } catch (error: any) {
+              console.error("Reset Error", error);
+              if (error.code === 'PERMISSION_DENIED') {
+                   alert("خطأ: ليس لديك صلاحية الحذف. تأكد من قواعد الأمان (Rules) في Firebase.");
+              } else {
+                   alert("فشل الحذف: " + error.message);
+              }
+          }
       }
   };
 
