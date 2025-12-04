@@ -443,7 +443,14 @@ const App = () => {
              </button>
           </div>
         );
-      case View.LIVE_QUIZ: return <LiveGame question={activeLiveQuestion} onAnswer={handleScoreUpdate} onPlaySound={playFeedbackSound} />;
+      case View.LIVE_QUIZ: 
+        const isAnswered = activeLiveQuestion && answeredQuestionIds.includes(activeLiveQuestion.id);
+        return <LiveGame 
+            question={activeLiveQuestion} 
+            onAnswer={handleScoreUpdate} 
+            onPlaySound={playFeedbackSound} 
+            isAlreadyAnswered={!!isAnswered}
+        />;
       case View.LEADERBOARD: return <Leaderboard currentUser={user!} data={leaderboardData} />;
       case View.ADMIN:
         return (

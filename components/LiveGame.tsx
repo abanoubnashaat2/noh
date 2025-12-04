@@ -6,9 +6,10 @@ interface LiveGameProps {
   onAnswer: (points: number) => void;
   isAdmin?: boolean;
   onPlaySound?: (type: 'correct' | 'wrong') => void;
+  isAlreadyAnswered?: boolean;
 }
 
-const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlaySound }) => {
+const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlaySound, isAlreadyAnswered }) => {
   const [timeLeft, setTimeLeft] = useState(15);
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [hasAnswered, setHasAnswered] = useState(false);
@@ -19,6 +20,10 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
   useEffect(() => {
     // Reset state when new question arrives
     if (question) {
+      // If the question changed, we reset our local "hasAnswered" state.
+      // NOTE: parent (App) tracks "isAlreadyAnswered". 
+      // If question ID changes, parent should pass isAlreadyAnswered=false.
+      
       setTimeLeft(15);
       setSelectedOption(null);
       setHasAnswered(false);
@@ -42,7 +47,12 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [question]);
+  }, [question?.id]); // Only reset if ID changes
+
+  // Logic to show "Locked" screen:
+  // If the parent says it's answered, AND we haven't just answered it in this session (hasAnswered is false).
+  // This covers the case where user refreshes or navigates away and back.
+  const isLocked = isAlreadyAnswered && !hasAnswered;
 
   const handleOptionClick = (index: number) => {
     if (hasAnswered || timeLeft === 0 || !question) return;
@@ -78,6 +88,18 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
         }
     }, 1000); // Small delay for tension
   };
+
+  if (isLocked) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full p-6 text-center animate-fade-in">
+          <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mb-6 shadow-inner border border-slate-200">
+               <span className="text-5xl">🔒</span>
+          </div>
+          <h2 className="text-xl font-bold text-slate-800 mb-2">تمت الإجابة على هذا السؤال</h2>
+          <p className="text-slate-500 text-sm mb-6">انتظر السؤال التالي من القائد...</p>
+        </div>
+      );
+  }
 
   if (!question) {
     return (
