@@ -9,11 +9,15 @@ interface NavProps {
   onLogout: () => void;
 }
 
-export const TopBar: React.FC<{ user: User, onLogout: () => void, score: number }> = ({ user, onLogout, score }) => (
+export const TopBar: React.FC<{ user: User, onLogout: () => void, score: number, isConnected?: boolean }> = ({ user, onLogout, score, isConnected = false }) => (
     <div className="bg-white px-4 py-3 shadow-sm flex justify-between items-center z-10 sticky top-0">
         <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center border border-blue-200">
-                {AVATARS[user.avatarId] || "😐"}
+            <div className="relative">
+                <div className="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center border border-blue-200">
+                    {AVATARS[user.avatarId] || "😐"}
+                </div>
+                {/* Connection Dot */}
+                <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-white ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} title={isConnected ? "متصل بالخادم" : "غير متصل"}></div>
             </div>
             <div className="flex flex-col">
                 <span className="text-xs font-bold text-slate-700">{user.name}</span>
@@ -38,7 +42,6 @@ export const BottomNav: React.FC<NavProps> = ({ currentView, onChangeView, user 
     { id: View.HOME, label: 'الرئيسية', icon: '🏠' },
     { id: View.LEADERBOARD, label: 'الترتيب', icon: '🏆' },
     { id: View.LIVE_QUIZ, label: 'المباشر', icon: '⚡' },
-    // Removed Solo Games Tab
   ];
 
   if (user.isAdmin) {
