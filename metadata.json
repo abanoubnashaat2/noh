@@ -1,0 +1,8 @@
+{
+  "name": "سفينة نوح",
+  "description": "تطبيق مسابقات تفاعلي للرحلات الكنسية يشمل مسابقات أونلاين وأوفلاين.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
