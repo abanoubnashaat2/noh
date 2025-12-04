@@ -1,3 +1,4 @@
+
 export enum View {
   AUTH = 'AUTH',
   HOME = 'HOME',
@@ -47,4 +48,10 @@ export interface AdminMessage {
   senderName: string;
   text: string;
   timestamp: number;
+}
+
+export interface AdminCommand {
+  text: string;
+  timestamp: number;
+  type: 'alert' | 'judgment'; 
 }

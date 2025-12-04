@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Auth from './components/Auth';
-import { View, User, Question, QuestionType, AdminMessage } from './types';
+import { View, User, Question, QuestionType, AdminMessage, AdminCommand } from './types';
 import { LIVE_QUESTIONS, WHO_SAID_IT_QUESTIONS, MOCK_LEADERBOARD, TRIP_CODE_VALID } from './constants';
 import LiveGame from './components/LiveGame';
 import { QRScanner } from './components/SoloZone';
@@ -16,6 +16,7 @@ const App = () => {
   // Game State
   const [score, setScore] = useState(0);
   const [activeLiveQuestion, setActiveLiveQuestion] = useState<Question | null>(null);
+  const [activeCommand, setActiveCommand] = useState<AdminCommand | null>(null);
   const [leaderboardData, setLeaderboardData] = useState<User[]>(MOCK_LEADERBOARD);
   
   // Anti-Cheat State: Track answered IDs
@@ -55,6 +56,7 @@ const App = () => {
   const [isLoadingAction, setIsLoadingAction] = useState(false);
 
   // Admin State
+  const [commandInput, setCommandInput] = useState('');
   const [questionsList, setQuestionsList] = useState<Question[]>(() => {
     try {
       const saved = localStorage.getItem('noah_questions_v1');
@@ -82,6 +84,7 @@ const App = () => {
 
   // Sound & Notification Logic
   const prevQuestionId = useRef<string | null>(null);
+  const prevCommandTime = useRef<number | null>(null);
 
   // Load user from local storage
   useEffect(() => {
@@ -140,24 +143,34 @@ const App = () => {
             setActiveLiveQuestion(data || null);
             setConnectionError('');
             
-            // Notification Logic (Sound/Vibrate)
+            // Notification Logic (Sound/Vibrate) for Questions
             if (data && data.id && data.id !== prevQuestionId.current) {
-                // If it's a new question (not the one we just had)
                 playNotificationSound();
                 if (navigator.vibrate) navigator.vibrate([300, 100, 300]);
             }
             prevQuestionId.current = data ? data.id : null;
-
         }, (error) => {
-            console.error("Error reading question:", error);
-            if (error.message.includes('permission_denied')) {
-                setConnectionError("⛔ القواعد (Rules) تمنع القراءة. اجعلها true.");
-            } else {
-                setConnectionError("فشل القراءة: " + error.message);
+             // Error handling...
+             console.error(error);
+        });
+
+        // 5. Listen for Admin Commands (New Feature)
+        const commandRef = ref(db, 'activeCommand');
+        onValue(commandRef, (snapshot) => {
+            const cmd = snapshot.val() as AdminCommand | null;
+            setActiveCommand(cmd);
+            
+            if (cmd && cmd.timestamp !== prevCommandTime.current) {
+                // Play alert sound for command
+                playAlertSound();
+                if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 500]);
+                prevCommandTime.current = cmd.timestamp;
+            } else if (!cmd) {
+                prevCommandTime.current = null;
             }
         });
 
-        // 5. Listen for Leaderboard
+        // 6. Listen for Leaderboard
         const usersRef = ref(db, 'users');
         onValue(usersRef, (snapshot) => {
             const data = snapshot.val();
@@ -179,7 +192,7 @@ const App = () => {
             }
         });
 
-        // 6. Listen for Admin Messages
+        // 7. Listen for Admin Messages
         const messagesRef = ref(db, 'messages');
         onValue(messagesRef, (snapshot) => {
            const msgs = snapshot.val();
@@ -188,7 +201,6 @@ const App = () => {
                    id: key,
                    ...val
                }));
-               // Sort by time desc
                list.sort((a, b) => b.timestamp - a.timestamp);
                setAdminMessages(list);
            } else {
@@ -206,7 +218,7 @@ const App = () => {
     localStorage.setItem('noah_questions_v1', JSON.stringify(questionsList));
   }, [questionsList]);
 
-  // Sound Helper
+  // Sound Helpers
   const playNotificationSound = () => {
      try {
          const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
@@ -214,23 +226,43 @@ const App = () => {
          const ctx = new AudioContext();
          const osc = ctx.createOscillator();
          const gain = ctx.createGain();
-         
          osc.connect(gain);
          gain.connect(ctx.destination);
-         
          osc.type = 'sine';
          osc.frequency.setValueAtTime(800, ctx.currentTime);
          osc.frequency.linearRampToValueAtTime(1200, ctx.currentTime + 0.1);
          osc.frequency.linearRampToValueAtTime(800, ctx.currentTime + 0.3);
-         
          gain.gain.setValueAtTime(0.5, ctx.currentTime);
          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-         
          osc.start();
          osc.stop(ctx.currentTime + 0.5);
-     } catch (e) {
-         console.error("Audio play failed", e);
-     }
+     } catch (e) { console.error(e); }
+  };
+
+  const playAlertSound = () => {
+    try {
+        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioContext) return;
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        
+        // Siren-like sound
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(400, ctx.currentTime);
+        osc.frequency.linearRampToValueAtTime(600, ctx.currentTime + 0.3);
+        osc.frequency.linearRampToValueAtTime(400, ctx.currentTime + 0.6);
+        osc.frequency.linearRampToValueAtTime(600, ctx.currentTime + 0.9);
+        
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.9);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1.2);
+        
+        osc.start();
+        osc.stop(ctx.currentTime + 1.2);
+    } catch (e) { console.error(e); }
   };
 
   // ------------------ Handlers ------------------
@@ -266,16 +298,11 @@ const App = () => {
   };
 
   const handleScoreUpdate = (points: number) => {
-    // 1. Update Score
     const newScore = score + points;
     setScore(newScore);
-    
-    // 2. Mark question as answered immediately to prevent re-entry
     if (activeLiveQuestion) {
         setAnsweredQuestionIds(prev => [...prev, activeLiveQuestion.id]);
     }
-
-    // 3. Sync User
     if (user) {
         const updatedUser = { ...user, score: newScore };
         setUser(updatedUser);
@@ -283,8 +310,6 @@ const App = () => {
         if (db) update(ref(db, 'users/' + user.id), { score: newScore });
         else setLeaderboardData(prev => prev.map(u => u.id === user.id ? updatedUser : u));
     }
-
-    // 4. Return to Home after a delay so they can see the result
     setTimeout(() => {
         setView(View.HOME);
     }, 2500);
@@ -393,10 +418,9 @@ const App = () => {
           onConfirm: async () => {
               setIsLoadingAction(true);
               try {
-                  // Reset Users
                   await remove(ref(db, 'users'));
-                  // Close active question
                   await set(ref(db, 'activeQuestion'), null);
+                  await set(ref(db, 'activeCommand'), null); // Also reset command
                   
                   setLeaderboardData([]);
                   setConfirmModal(prev => ({...prev, isOpen: false}));
@@ -410,6 +434,31 @@ const App = () => {
               }
           }
       });
+  };
+
+  const handleSendCommand = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!commandInput.trim() || !db) return;
+      
+      const newCommand: AdminCommand = {
+          text: commandInput,
+          timestamp: Date.now(),
+          type: 'alert' // or judgment, could add a toggle later
+      };
+
+      set(ref(db, 'activeCommand'), newCommand)
+         .then(() => {
+             alert('تم إرسال الأمر/الحكم بنجاح 🔔');
+             setCommandInput('');
+         })
+         .catch(err => alert('فشل الإرسال: ' + err.message));
+  };
+
+  const handleClearCommand = () => {
+      if (!db) return;
+      set(ref(db, 'activeCommand'), null)
+        .then(() => alert('تم إخفاء الأمر 🔕'))
+        .catch(err => alert('خطأ: ' + err.message));
   };
 
   // CRUD
@@ -446,7 +495,7 @@ const App = () => {
         const isCurrentQuestionAnswered = activeLiveQuestion && answeredQuestionIds.includes(activeLiveQuestion.id);
 
         return (
-          <div className="p-4 flex flex-col gap-4 h-full content-start">
+          <div className="p-4 flex flex-col gap-4 h-full content-start relative">
              <div className="bg-gradient-to-r from-primary to-blue-500 rounded-2xl p-6 text-white shadow-lg mb-2 relative overflow-hidden">
                 <div className="absolute -right-10 -bottom-10 text-9xl opacity-20">🚢</div>
                 <h2 className="text-2xl font-bold mb-2">مرحباً {user?.name}</h2>
@@ -496,6 +545,21 @@ const App = () => {
                  <div className="flex items-center gap-3"><span className="text-3xl">📨</span><span className="font-bold text-slate-700">إرسال طلب للقائد</span></div>
                  <span className="text-slate-400">←</span>
              </button>
+
+             {/* Active Command Overlay (Alert/Judgment) */}
+             {activeCommand && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md animate-fade-in">
+                    <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl text-center border-4 border-yellow-400 relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-full h-2 bg-yellow-400 animate-pulse"></div>
+                        <div className="text-6xl mb-4">⚠️</div>
+                        <h3 className="text-2xl font-black text-slate-800 mb-4">أمر من القائد</h3>
+                        <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200 mb-6">
+                            <p className="text-xl font-bold text-slate-800 leading-relaxed">{activeCommand.text}</p>
+                        </div>
+                        <p className="text-xs text-slate-400 animate-pulse">انتظر تعليمات القائد...</p>
+                    </div>
+                </div>
+             )}
           </div>
         );
       case View.LIVE_QUIZ: 
@@ -517,6 +581,33 @@ const App = () => {
                          <input type="text" defaultValue={tripCode} onBlur={(e) => handleUpdateTripCode(e.target.value)} className="bg-slate-700 border-none rounded-lg px-3 py-2 w-full text-center tracking-widest font-mono text-lg font-bold" />
                      </div>
                      <p className="text-[10px] text-slate-400 mt-2">قم بتغيير الكود واضغط خارج الحقل للحفظ.</p>
+                </div>
+                
+                {/* Admin Command Section */}
+                <div className="bg-yellow-50 border-2 border-yellow-400 p-4 rounded-xl shadow-md mb-6">
+                    <h3 className="font-bold text-lg text-slate-800 mb-2 flex items-center gap-2">
+                        <span>📢</span> إرسال حكم / تنبيه
+                    </h3>
+                    <form onSubmit={handleSendCommand} className="flex flex-col gap-2">
+                        <input 
+                            type="text" 
+                            value={commandInput} 
+                            onChange={(e) => setCommandInput(e.target.value)} 
+                            placeholder="اكتب الأمر أو الحكم هنا..." 
+                            className="w-full p-3 rounded-xl border border-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                        />
+                        <div className="flex gap-2">
+                            <button type="submit" className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 rounded-xl transition-colors">
+                                إرسال 🔔
+                            </button>
+                            {activeCommand && (
+                                <button type="button" onClick={handleClearCommand} className="px-4 bg-slate-200 text-slate-600 font-bold rounded-xl">
+                                    إخفاء 🔕
+                                </button>
+                            )}
+                        </div>
+                    </form>
+                    {activeCommand && <p className="text-[10px] text-green-600 mt-2 font-bold">✅ يوجد أمر نشط حالياً للمستخدمين: {activeCommand.text}</p>}
                 </div>
 
                 <div className="bg-white p-4 rounded-xl shadow-md border border-slate-200 mb-6">
