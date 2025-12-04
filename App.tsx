@@ -56,6 +56,32 @@ const App = () => {
     }
   }, []);
 
+  // Sync active question across tabs (Simulation of Socket)
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+        if (e.key === 'noah_active_question_data') {
+            if (e.newValue) {
+                const q = JSON.parse(e.newValue);
+                setActiveLiveQuestion(q);
+                // Optional: Auto redirect user to quiz if they are idle
+                // if (!user?.isAdmin) setView(View.LIVE_QUIZ);
+            } else {
+                setActiveLiveQuestion(null);
+            }
+        }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Check on load if there is an active question
+    const currentActive = localStorage.getItem('noah_active_question_data');
+    if (currentActive) {
+        setActiveLiveQuestion(JSON.parse(currentActive));
+    }
+
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [user]); // Add user to dependency to ensure logic works after login
+
   // Persist Questions whenever they change
   useEffect(() => {
     localStorage.setItem('noah_questions_v1', JSON.stringify(questionsList));
@@ -136,16 +162,20 @@ const App = () => {
       
       if (q) {
           setActiveLiveQuestion(q);
+          // Broadcast to other tabs via localStorage
+          localStorage.setItem('noah_active_question_data', JSON.stringify(q));
           
           // Trigger Animation
           setJustSentId(qId);
           setTimeout(() => setJustSentId(null), 1500);
-
-          // In real app, socket emit here
       }
   };
 
-  const closeLiveQuestion = () => setActiveLiveQuestion(null);
+  const closeLiveQuestion = () => {
+      setActiveLiveQuestion(null);
+      // Remove from broadcast
+      localStorage.removeItem('noah_active_question_data');
+  };
 
   // Question Management Logic
   const resetForm = () => {
@@ -238,7 +268,12 @@ const App = () => {
              </div>
 
              <div className="grid grid-cols-2 gap-4">
-                <button onClick={() => setView(View.LIVE_QUIZ)} className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center gap-2 hover:bg-slate-50 transition-all active:scale-95">
+                <button onClick={() => setView(View.LIVE_QUIZ)} className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center gap-2 hover:bg-slate-50 transition-all active:scale-95 relative overflow-hidden">
+                     {activeLiveQuestion && (
+                        <div className="absolute top-0 right-0 bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-bl-lg font-bold animate-pulse">
+                            مباشر الآن
+                        </div>
+                    )}
                     <span className="text-5xl mb-2">⚡</span>
                     <span className="font-bold text-slate-700 text-lg">المسابقة</span>
                     <span className="text-xs text-slate-400">أسئلة مباشرة</span>
@@ -269,7 +304,7 @@ const App = () => {
         return <Leaderboard currentUser={user!} data={leaderboardData} />;
       case View.ADMIN:
         return (
-            <div className="p-4 relative">
+            <div className="p-4 relative pb-20">
                 {showDeleteModal && (
                     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
                         <div className="bg-white rounded-2xl p-6 w-full max-w-xs shadow-2xl border border-slate-100">
@@ -430,19 +465,6 @@ const App = () => {
                                     </button>
                                 </div>
                             </div>
-                            <div className="flex justify-between items-center bg-slate-50 p-2 rounded-lg">
-                                <span className="text-xs text-slate-500 font-bold">تجربة الصوت:</span>
-                                <div className="flex gap-2">
-                                     <button 
-                                      onClick={() => playFeedbackSound('correct')} 
-                                      className="w-8 h-8 rounded-full bg-green-50 text-green-600 border border-green-200 flex items-center justify-center text-sm shadow-sm"
-                                    >✔</button>
-                                     <button 
-                                      onClick={() => playFeedbackSound('wrong')} 
-                                      className="w-8 h-8 rounded-full bg-red-50 text-red-600 border border-red-200 flex items-center justify-center text-sm shadow-sm"
-                                    >✕</button>
-                                </div>
-                            </div>
                             <div className="flex gap-2 w-full">
                                 <button 
                                     onClick={() => triggerLiveQuestion(q.id)} 
@@ -460,24 +482,43 @@ const App = () => {
                     ))}
                 </div>
 
-                {/* Who Said It Section (Static for now, can be made dynamic similarly) */}
-                <h3 className="font-bold text-lg mb-3 flex items-center gap-2 opacity-60">
+                {/* Who Said It Section (Fixed and Interactive) */}
+                <h3 className="font-bold text-lg mb-3 flex items-center gap-2 mt-8 border-t pt-4">
                     🗣️ من القائل؟ (ثابتة)
                 </h3>
-                <div className="space-y-3 mb-8 opacity-60">
+                <div className="space-y-3 mb-8">
                     {WHO_SAID_IT_QUESTIONS.map(q => (
                         <div key={q.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-3">
                              <div className="flex justify-between items-start">
-                                <div>
-                                    <span className="font-bold text-slate-800 block text-sm">"{q.text}"</span>
+                                <div className="flex-grow">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className={`text-[10px] px-2 py-0.5 rounded-full ${
+                                            q.difficulty === 'سهل' ? 'bg-green-100 text-green-700' :
+                                            q.difficulty === 'متوسط' ? 'bg-orange-100 text-orange-700' :
+                                            'bg-red-100 text-red-700'
+                                        }`}>
+                                            {q.difficulty}
+                                        </span>
+                                        <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">{q.points} نقطة</span>
+                                    </div>
+                                    <span className="font-bold text-slate-800 block text-lg">"{q.text}"</span>
+                                    <div className="text-xs text-slate-500 mt-1">القائل: <span className="text-green-600 font-bold">{q.options[q.correctIndex]}</span> {q.context && <span className="text-slate-400">({q.context})</span>}</div>
                                 </div>
                              </div>
-                            <button 
-                                onClick={() => triggerLiveQuestion(q.id)} 
-                                className="bg-secondary text-white py-1 rounded text-xs"
-                            >
-                                إرسال
-                            </button>
+                            
+                            <div className="flex gap-2 w-full">
+                                <button 
+                                    onClick={() => triggerLiveQuestion(q.id)} 
+                                    className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all duration-300 transform ${
+                                        justSentId === q.id ? "bg-green-500 text-white scale-95 shadow-inner" : "bg-secondary hover:bg-amber-500 text-white shadow-md hover:shadow-lg"
+                                    }`}
+                                >
+                                    {justSentId === q.id ? "تم الإرسال! ✓" : "إرسال للمتسابقين 🚀"}
+                                </button>
+                                {activeLiveQuestion?.id === q.id && (
+                                    <button onClick={closeLiveQuestion} className="px-4 bg-red-100 text-red-600 rounded-xl text-sm font-bold shadow-sm">إيقاف</button>
+                                )}
+                            </div>
                         </div>
                     ))}
                 </div>
