@@ -505,6 +505,19 @@ const App = () => {
              {connectionError && <div className="bg-red-500 text-white p-3 rounded-xl text-sm shadow-md animate-pulse font-bold">{connectionError}</div>}
              {!isConnected && !connectionError && isConfigured && <div className="bg-yellow-500 text-white p-3 rounded-xl text-sm shadow-md">📡 جارِ الاتصال بالخادم...</div>}
 
+             {/* Active Command Banner (Replacing Overlay) */}
+             {activeCommand && (
+                <div className="bg-yellow-400 text-slate-900 p-4 rounded-xl shadow-lg flex items-center justify-between border-2 border-yellow-500 animate-pulse">
+                     <div className="flex items-center gap-3">
+                        <span className="text-3xl">📣</span>
+                        <div className="flex flex-col">
+                            <span className="font-black text-lg">أمر القائد</span>
+                            <span className="font-bold text-md">{activeCommand.text}</span>
+                        </div>
+                     </div>
+                </div>
+             )}
+
              {/* Live Question Banner */}
              {activeLiveQuestion && !isCurrentQuestionAnswered && (
                 <div onClick={() => setView(View.LIVE_QUIZ)} className="bg-red-500 text-white p-4 rounded-xl shadow-lg flex items-center justify-between animate-pulse cursor-pointer border-2 border-red-400">
@@ -545,21 +558,6 @@ const App = () => {
                  <div className="flex items-center gap-3"><span className="text-3xl">📨</span><span className="font-bold text-slate-700">إرسال طلب للقائد</span></div>
                  <span className="text-slate-400">←</span>
              </button>
-
-             {/* Active Command Overlay (Alert/Judgment) */}
-             {activeCommand && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md animate-fade-in">
-                    <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl text-center border-4 border-yellow-400 relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-full h-2 bg-yellow-400 animate-pulse"></div>
-                        <div className="text-6xl mb-4">⚠️</div>
-                        <h3 className="text-2xl font-black text-slate-800 mb-4">أمر من القائد</h3>
-                        <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-200 mb-6">
-                            <p className="text-xl font-bold text-slate-800 leading-relaxed">{activeCommand.text}</p>
-                        </div>
-                        <p className="text-xs text-slate-400 animate-pulse">انتظر تعليمات القائد...</p>
-                    </div>
-                </div>
-             )}
           </div>
         );
       case View.LIVE_QUIZ: 
