@@ -352,8 +352,31 @@ const App = () => {
   };
 
   const clearMessages = () => {
-      if (db && window.confirm("مسح كل الرسائل؟")) {
-          remove(ref(db, 'messages'));
+      if (!db) {
+          alert("خطأ: لا يوجد اتصال بقاعدة البيانات. تأكد من إعدادات الاتصال.");
+          return;
+      }
+      if (window.confirm("هل أنت متأكد تماماً من مسح كل الرسائل؟ لا يمكن التراجع.")) {
+          remove(ref(db, 'messages'))
+            .then(() => alert("تم مسح الرسائل بنجاح ✅"))
+            .catch((error) => alert("حدث خطأ أثناء المسح: " + error.message));
+      }
+  };
+
+  const handleResetLeaderboard = () => {
+      if (!db) {
+          alert("خطأ: لا يوجد اتصال بقاعدة البيانات");
+          return;
+      }
+      if (window.confirm("⚠️ تحذير خطير: سيتم حذف جميع المستخدمين وتصفير النقاط والبدء من جديد. هل أنت متأكد؟")) {
+          remove(ref(db, 'users'))
+            .then(() => {
+                // Also clear messages for a fresh start? Maybe optional.
+                // Reset local state if I am the admin observing
+                setLeaderboardData([]);
+                alert("تم تصفير الترتيب وحذف المستخدمين بنجاح ✅\nيمكن للمتسابقين الدخول الآن من جديد.");
+            })
+            .catch((error) => alert("فشل الحذف: " + error.message));
       }
   };
 
@@ -467,7 +490,7 @@ const App = () => {
                 <div className="bg-white p-4 rounded-xl shadow-md border border-slate-200 mb-6">
                     <div className="flex justify-between items-center mb-3">
                          <h3 className="font-bold text-lg text-slate-700">📬 رسائل المتسابقين</h3>
-                         {adminMessages.length > 0 && <button onClick={clearMessages} className="text-xs text-red-500 underline">مسح الكل</button>}
+                         {adminMessages.length > 0 && <button onClick={clearMessages} className="text-xs text-red-500 underline font-bold px-2 py-1 hover:bg-red-50 rounded">مسح الكل</button>}
                     </div>
                     <div className="max-h-60 overflow-y-auto space-y-2">
                         {adminMessages.length === 0 ? <p className="text-center text-sm text-slate-400 py-4">لا توجد رسائل جديدة</p> : adminMessages.map(msg => (
@@ -536,7 +559,19 @@ const App = () => {
                         </div>
                     ))}
                 </div>
-                <div className="border-t pt-6"><h3 className="font-bold mb-2">إدارة المستخدمين</h3><p className="text-xs text-slate-400">عدد المتصلين: {leaderboardData.length}</p>{isConfigured && <button onClick={clearManualConfig} className="text-[10px] text-red-400 underline mt-2">Reset Config</button>}</div>
+                <div className="border-t pt-6">
+                    <h3 className="font-bold mb-2">إدارة المستخدمين</h3>
+                    <p className="text-xs text-slate-400 mb-2">عدد المتصلين: {leaderboardData.length}</p>
+                    <div className="flex items-center gap-3 mt-2">
+                        {isConfigured && <button onClick={clearManualConfig} className="text-[10px] text-slate-400 underline">Reset Config</button>}
+                        <button 
+                            onClick={handleResetLeaderboard} 
+                            className="text-xs bg-red-100 text-red-600 px-3 py-2 rounded-lg font-bold border border-red-200 hover:bg-red-200 transition-colors"
+                        >
+                            🗑️ تصفير الترتيب (حذف الكل)
+                        </button>
+                    </div>
+                </div>
             </div>
         );
       default: return <div className="p-4">الصفحة قيد الإنشاء</div>;
