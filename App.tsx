@@ -3,7 +3,7 @@ import Auth from './components/Auth';
 import { View, User, Question, QuestionType, AdminMessage, AdminCommand } from './types';
 import { LIVE_QUESTIONS, WHO_SAID_IT_QUESTIONS, MOCK_LEADERBOARD, TRIP_CODE_VALID } from './constants';
 import LiveGame from './components/LiveGame';
-import { QRScanner } from './components/SoloZone';
+import SpinWheel from './components/SpinWheel';
 import Leaderboard from './components/Leaderboard';
 import { BottomNav, TopBar } from './components/Navigation';
 import { db, isConfigured, saveManualConfig, clearManualConfig, signIn } from './firebase';
@@ -72,6 +72,7 @@ const App = () => {
     text: '',
     options: ['', '', '', ''],
     correctIndex: 0,
+    correctAnswerText: '',
     type: QuestionType.TEXT,
     points: 100,
     difficulty: 'متوسط'
@@ -79,7 +80,7 @@ const App = () => {
   
   const [showDeleteModal, setShowDeleteModal] = useState(false); // For single question delete
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-  const [showQR, setShowQR] = useState(false);
+  const [showSpinWheel, setShowSpinWheel] = useState(false);
   const [justSentId, setJustSentId] = useState<string | null>(null);
 
   // Sound & Notification Logic
@@ -116,8 +117,16 @@ const App = () => {
         } else {
             setAuthStatus('error');
             setAuthErrorMessage(error || "Unknown Auth Error");
-            if (error && error.includes('operation-not-allowed')) {
-                 setConnectionError("يجب تفعيل 'Anonymous Auth' في Firebase Console");
+            
+            // Handle specific auth errors
+            if (error) {
+                if (error.includes('operation-not-allowed')) {
+                     setConnectionError("يجب تفعيل 'Anonymous Auth' في Firebase Console");
+                } else if (error.includes('configuration-not-found')) {
+                     setConnectionError("خطأ في المصادقة: الخدمة غير مفعلة (Enable Auth)");
+                } else {
+                     setConnectionError(`خطأ في الاتصال: ${error}`);
+                }
             }
         }
 
@@ -300,7 +309,7 @@ const App = () => {
   const handleScoreUpdate = (points: number) => {
     const newScore = score + points;
     setScore(newScore);
-    if (activeLiveQuestion) {
+    if (activeLiveQuestion && view === View.LIVE_QUIZ) {
         setAnsweredQuestionIds(prev => [...prev, activeLiveQuestion.id]);
     }
     if (user) {
@@ -310,9 +319,12 @@ const App = () => {
         if (db) update(ref(db, 'users/' + user.id), { score: newScore });
         else setLeaderboardData(prev => prev.map(u => u.id === user.id ? updatedUser : u));
     }
-    setTimeout(() => {
-        setView(View.HOME);
-    }, 2500);
+    // Only go home if quiz
+    if (view === View.LIVE_QUIZ) {
+        setTimeout(() => {
+            setView(View.HOME);
+        }, 2500);
+    }
   };
 
   const playFeedbackSound = (type: 'correct' | 'wrong') => {
@@ -462,7 +474,7 @@ const App = () => {
   };
 
   // CRUD
-  const resetForm = () => { setQuestionForm({ id: '', text: '', options: ['', '', '', ''], correctIndex: 0, type: QuestionType.TEXT, points: 100, difficulty: 'متوسط' }); setIsEditing(false); };
+  const resetForm = () => { setQuestionForm({ id: '', text: '', options: ['', '', '', ''], correctIndex: 0, correctAnswerText: '', type: QuestionType.TEXT, points: 100, difficulty: 'متوسط' }); setIsEditing(false); };
   const handleEditClick = (q: Question) => { setQuestionForm(q); setIsEditing(true); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const handleDeleteClick = (id: string) => { setDeleteTargetId(id); setShowDeleteModal(true); };
   const confirmDelete = () => { if (deleteTargetId) { setQuestionsList(prev => prev.filter(q => q.id !== deleteTargetId)); if (isEditing && questionForm.id === deleteTargetId) resetForm(); } setShowDeleteModal(false); setDeleteTargetId(null); };
@@ -488,7 +500,7 @@ const App = () => {
   }
 
   const renderContent = () => {
-    if (showQR) return <QRScanner onScan={(data) => { alert(`تم مسح الكود: ${data} - حصلت على 50 نقطة!`); handleScoreUpdate(50); setShowQR(false); }} onClose={() => setShowQR(false)} />;
+    if (showSpinWheel) return <SpinWheel onWin={(pts) => { alert(`مبروك! ربحت ${pts} نقطة!`); handleScoreUpdate(pts); setShowSpinWheel(false); }} onClose={() => setShowSpinWheel(false)} />;
 
     switch (view) {
       case View.HOME:
@@ -550,7 +562,7 @@ const App = () => {
                     <span className="text-5xl mb-2">⚡</span>
                     <span className="font-bold text-slate-700">المسابقة</span>
                 </button>
-                <button onClick={() => setShowQR(true)} className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center gap-2 hover:bg-slate-50 transition-all active:scale-95"><span className="text-5xl mb-2">📸</span><span className="font-bold text-slate-700">صائد الكنوز</span></button>
+                <button onClick={() => setShowSpinWheel(true)} className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center gap-2 hover:bg-slate-50 transition-all active:scale-95"><span className="text-5xl mb-2">🎡</span><span className="font-bold text-slate-700">عجلة الحظ</span></button>
              </div>
              
              {/* Messaging Button */}
@@ -677,19 +689,53 @@ const App = () => {
                 <div className="bg-white p-4 rounded-xl shadow-md border border-slate-200 mb-8">
                     <h3 className="font-bold text-lg mb-3 text-primary">{isEditing ? '✏️ تعديل سؤال' : '➕ إضافة سؤال جديد'}</h3>
                     <form onSubmit={handleSaveQuestion} className="space-y-3">
+                        <div className="flex gap-2 mb-2">
+                            <button 
+                                type="button" 
+                                onClick={() => setQuestionForm({...questionForm, type: QuestionType.TEXT})}
+                                className={`flex-1 py-2 rounded-lg text-xs font-bold ${questionForm.type === QuestionType.TEXT ? 'bg-primary text-white' : 'bg-slate-100 text-slate-500'}`}
+                            >
+                                اختيارات
+                            </button>
+                            <button 
+                                type="button" 
+                                onClick={() => setQuestionForm({...questionForm, type: QuestionType.INPUT})}
+                                className={`flex-1 py-2 rounded-lg text-xs font-bold ${questionForm.type === QuestionType.INPUT ? 'bg-primary text-white' : 'bg-slate-100 text-slate-500'}`}
+                            >
+                                سؤال مباشر (كتابي)
+                            </button>
+                        </div>
+
                         <input type="text" required value={questionForm.text} onChange={e => setQuestionForm({...questionForm, text: e.target.value})} className="w-full border p-2 rounded-lg" placeholder="نص السؤال..." />
+                        
                         <div className="flex gap-2">
                             <input type="number" required value={questionForm.points} onChange={e => setQuestionForm({...questionForm, points: parseInt(e.target.value)})} className="w-1/2 border p-2 rounded-lg" placeholder="النقاط" />
                             <select value={questionForm.difficulty} onChange={e => setQuestionForm({...questionForm, difficulty: e.target.value})} className="w-1/2 border p-2 rounded-lg bg-white"><option value="سهل">سهل</option><option value="متوسط">متوسط</option><option value="صعب">صعب</option></select>
                         </div>
-                        <div className="grid grid-cols-2 gap-2">
-                            {questionForm.options.map((opt, idx) => (
-                                <div key={idx} className="relative">
-                                     <input type="radio" name="correctIdx" checked={questionForm.correctIndex === idx} onChange={() => setQuestionForm({...questionForm, correctIndex: idx})} className="absolute top-3 left-2" />
-                                     <input type="text" required value={opt} onChange={e => handleOptionChange(idx, e.target.value)} className={`w-full border p-2 pl-6 rounded-lg text-sm ${questionForm.correctIndex === idx ? 'border-green-500 bg-green-50' : ''}`} placeholder={`خيار ${idx + 1}`} />
-                                </div>
-                            ))}
-                        </div>
+                        
+                        {questionForm.type === QuestionType.INPUT ? (
+                             <div className="relative">
+                                 <label className="text-xs text-slate-500 mb-1 block">الإجابة النموذجية (تتطلب تطابق دقيق)</label>
+                                 <input 
+                                    type="text" 
+                                    required 
+                                    value={questionForm.correctAnswerText || ''} 
+                                    onChange={e => setQuestionForm({...questionForm, correctAnswerText: e.target.value})} 
+                                    className="w-full border p-2 rounded-lg border-green-500 bg-green-50" 
+                                    placeholder="اكتب الإجابة الصحيحة هنا..." 
+                                 />
+                             </div>
+                        ) : (
+                            <div className="grid grid-cols-2 gap-2">
+                                {questionForm.options.map((opt, idx) => (
+                                    <div key={idx} className="relative">
+                                        <input type="radio" name="correctIdx" checked={questionForm.correctIndex === idx} onChange={() => setQuestionForm({...questionForm, correctIndex: idx})} className="absolute top-3 left-2" />
+                                        <input type="text" required value={opt} onChange={e => handleOptionChange(idx, e.target.value)} className={`w-full border p-2 pl-6 rounded-lg text-sm ${questionForm.correctIndex === idx ? 'border-green-500 bg-green-50' : ''}`} placeholder={`خيار ${idx + 1}`} />
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        
                         <div className="flex gap-2 pt-2"><button type="submit" className="flex-1 bg-primary text-white py-2 rounded-lg font-bold">{isEditing ? 'حفظ' : 'إضافة'}</button>{isEditing && <button type="button" onClick={resetForm} className="bg-slate-200 px-4 rounded-lg">إلغاء</button>}</div>
                     </form>
                 </div>
@@ -698,7 +744,14 @@ const App = () => {
                     {questionsList.map(q => (
                         <div key={q.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-3">
                             <div className="flex justify-between items-start">
-                                <div className="flex-grow"><span className="font-bold text-slate-800 block">{q.text}</span><span className="text-xs text-green-600 font-bold">الإجابة: {q.options[q.correctIndex]}</span></div>
+                                <div className="flex-grow">
+                                    <span className="font-bold text-slate-800 block">{q.text}</span>
+                                    {q.type === QuestionType.INPUT ? (
+                                        <span className="text-xs text-blue-600 font-bold block mt-1">📝 إجابة كتابية: {q.correctAnswerText}</span>
+                                    ) : (
+                                        <span className="text-xs text-green-600 font-bold block mt-1">✅ الاختيار: {q.options[q.correctIndex]}</span>
+                                    )}
+                                </div>
                                 <div className="flex flex-col gap-2 ml-2"><button onClick={() => handleEditClick(q)} className="text-slate-400 hover:text-blue-500">✏️</button><button onClick={() => handleDeleteClick(q.id)} className="text-red-300 hover:text-red-500">🗑️</button></div>
                             </div>
                             <div className="flex gap-2 w-full">

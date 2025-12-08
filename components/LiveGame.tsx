@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Question } from '../types';
+import { Question, QuestionType } from '../types';
 
 interface LiveGameProps {
   question: Question | null;
@@ -10,24 +10,28 @@ interface LiveGameProps {
 }
 
 const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlaySound, isAlreadyAnswered }) => {
-  const [timeLeft, setTimeLeft] = useState(15);
+  const [timeLeft, setTimeLeft] = useState(30); // Increased default time for typing
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
+  
+  // For Input Type
+  const [textAnswer, setTextAnswer] = useState('');
+  
   const [hasAnswered, setHasAnswered] = useState(false);
   const [showResult, setShowResult] = useState(false);
+  const [isCorrectInput, setIsCorrectInput] = useState(false);
   
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     // Reset state when new question arrives
     if (question) {
-      // If the question changed, we reset our local "hasAnswered" state.
-      // NOTE: parent (App) tracks "isAlreadyAnswered". 
-      // If question ID changes, parent should pass isAlreadyAnswered=false.
-      
-      setTimeLeft(15);
+      const initialTime = question.type === QuestionType.INPUT ? 45 : 15; // More time for typing
+      setTimeLeft(initialTime);
       setSelectedOption(null);
+      setTextAnswer('');
       setHasAnswered(false);
       setShowResult(false);
+      setIsCorrectInput(false);
 
       timerRef.current = setInterval(() => {
         setTimeLeft((prev) => {
@@ -40,18 +44,14 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
         });
       }, 1000);
     } else {
-        // Clear timer if no question
         if (timerRef.current) clearInterval(timerRef.current);
     }
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [question?.id]); // Only reset if ID changes
+  }, [question?.id]);
 
-  // Logic to show "Locked" screen:
-  // If the parent says it's answered, AND we haven't just answered it in this session (hasAnswered is false).
-  // This covers the case where user refreshes or navigates away and back.
   const isLocked = isAlreadyAnswered && !hasAnswered;
 
   const handleOptionClick = (index: number) => {
@@ -63,30 +63,47 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
 
     const isCorrect = index === question.correctIndex;
 
-    // Play Sound Automatically
-    if (onPlaySound) {
-        onPlaySound(isCorrect ? 'correct' : 'wrong');
-    }
+    if (onPlaySound) onPlaySound(isCorrect ? 'correct' : 'wrong');
 
-    // Score Calculation: 100 max, minus time elapsed
     let points = 0;
-    
     if (isCorrect) {
-      // Logic: Faster answer = more points. Min 10 pts.
       const timeTaken = 15 - timeLeft;
-      // Simple formula: 100 - (timeTaken * 5)
       points = Math.max(10, 100 - (timeTaken * 5));
     }
 
     setTimeout(() => {
         setShowResult(true);
-        if (isCorrect) {
-            onAnswer(points);
-        } else {
-            // Wrong answer penalty? Or just 0.
-            onAnswer(0);
-        }
-    }, 1000); // Small delay for tension
+        onAnswer(isCorrect ? points : 0);
+    }, 1000);
+  };
+
+  const handleInputSubmit = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (hasAnswered || timeLeft === 0 || !question) return;
+      if (!textAnswer.trim()) return;
+
+      setHasAnswered(true);
+      if (timerRef.current) clearInterval(timerRef.current);
+
+      // Validation Logic
+      const expected = question.correctAnswerText?.trim().toLowerCase();
+      const actual = textAnswer.trim().toLowerCase();
+      
+      const isCorrect = expected === actual;
+      setIsCorrectInput(isCorrect);
+
+      if (onPlaySound) onPlaySound(isCorrect ? 'correct' : 'wrong');
+
+      let points = 0;
+      if (isCorrect) {
+          // Slightly simpler scoring for text
+          points = question.points; 
+      }
+
+      setTimeout(() => {
+          setShowResult(true);
+          onAnswer(isCorrect ? points : 0);
+      }, 1000);
   };
 
   if (isLocked) {
@@ -111,13 +128,15 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
     );
   }
 
+  const maxTime = question.type === QuestionType.INPUT ? 45 : 15;
+
   return (
     <div className="flex flex-col h-full p-4">
       {/* Timer Bar */}
       <div className="w-full h-4 bg-gray-200 rounded-full overflow-hidden mb-6 relative">
         <div 
             className={`h-full transition-all duration-1000 ease-linear ${timeLeft < 5 ? 'bg-red-500' : 'bg-primary'}`}
-            style={{ width: `${(timeLeft / 15) * 100}%` }}
+            style={{ width: `${(timeLeft / maxTime) * 100}%` }}
         />
         <span className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-700">
             {timeLeft} ثانية
@@ -126,44 +145,87 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
 
       <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 flex-grow flex flex-col justify-center border-t-4 border-primary">
         <h2 className="text-xl font-bold text-center text-slate-800 mb-2">{question.text}</h2>
-        <div className="text-center text-sm text-slate-400">سؤال سرعة 🔥</div>
+        <div className="text-center text-sm text-slate-400">
+            {question.type === QuestionType.INPUT ? 'سؤال مباشر - اكتب الإجابة' : 'سؤال سرعة 🔥'}
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3">
-        {question.options.map((option, idx) => {
-          let stateClass = "bg-white border-2 border-slate-100 text-slate-700";
-          
-          if (showResult) {
-            if (idx === question.correctIndex) {
-              stateClass = "bg-green-100 border-green-500 text-green-800";
-            } else if (idx === selectedOption) {
-              stateClass = "bg-red-100 border-red-500 text-red-800";
-            } else {
-                stateClass = "opacity-50";
-            }
-          } else if (selectedOption === idx) {
-             stateClass = "bg-primary border-primary text-white";
-          }
+      {question.type === QuestionType.INPUT ? (
+          // Input Interface
+          <form onSubmit={handleInputSubmit} className="flex flex-col gap-4">
+              <input 
+                type="text" 
+                value={textAnswer}
+                onChange={(e) => setTextAnswer(e.target.value)}
+                disabled={hasAnswered}
+                placeholder="اكتب إجابتك هنا..."
+                className={`w-full p-4 rounded-xl border-2 text-center text-lg font-bold outline-none transition-colors
+                    ${showResult 
+                        ? (isCorrectInput ? 'border-green-500 bg-green-50 text-green-900' : 'border-red-500 bg-red-50 text-red-900')
+                        : 'border-slate-300 focus:border-primary'
+                    }
+                `}
+              />
+              {!showResult && (
+                  <button 
+                    type="submit" 
+                    disabled={hasAnswered || !textAnswer.trim()}
+                    className="bg-primary text-white py-4 rounded-xl font-bold text-lg shadow-md hover:bg-blue-600 disabled:opacity-50"
+                  >
+                      إرسال الإجابة 🚀
+                  </button>
+              )}
+          </form>
+      ) : (
+          // Multiple Choice Interface
+          <div className="grid grid-cols-1 gap-3">
+            {question.options.map((option, idx) => {
+              let stateClass = "bg-white border-2 border-slate-100 text-slate-700";
+              
+              if (showResult) {
+                if (idx === question.correctIndex) {
+                  stateClass = "bg-green-100 border-green-500 text-green-800";
+                } else if (idx === selectedOption) {
+                  stateClass = "bg-red-100 border-red-500 text-red-800";
+                } else {
+                    stateClass = "opacity-50";
+                }
+              } else if (selectedOption === idx) {
+                 stateClass = "bg-primary border-primary text-white";
+              }
 
-          return (
-            <button
-              key={idx}
-              onClick={() => handleOptionClick(idx)}
-              disabled={hasAnswered || timeLeft === 0}
-              className={`p-4 rounded-xl font-bold text-lg shadow-sm transition-all transform active:scale-95 ${stateClass}`}
-            >
-              {option}
-            </button>
-          );
-        })}
-      </div>
+              return (
+                <button
+                  key={idx}
+                  onClick={() => handleOptionClick(idx)}
+                  disabled={hasAnswered || timeLeft === 0}
+                  className={`p-4 rounded-xl font-bold text-lg shadow-sm transition-all transform active:scale-95 ${stateClass}`}
+                >
+                  {option}
+                </button>
+              );
+            })}
+          </div>
+      )}
 
       {showResult && (
         <div className="mt-6 text-center animate-bounce">
-            {selectedOption === question.correctIndex ? (
-                 <span className="text-green-600 font-bold text-xl">🎉 إجابة صحيحة!</span>
+            {(question.type === QuestionType.INPUT ? isCorrectInput : selectedOption === question.correctIndex) ? (
+                 <div className="flex flex-col items-center">
+                    <span className="text-6xl mb-2">🎉</span>
+                    <span className="text-green-600 font-bold text-xl">إجابة صحيحة!</span>
+                    {question.type === QuestionType.INPUT && <span className="text-xs text-slate-400 mt-1">الإجابة: {question.correctAnswerText}</span>}
+                 </div>
             ) : (
-                <span className="text-red-500 font-bold text-xl">❌ حظ أوفر!</span>
+                <div className="flex flex-col items-center">
+                    <span className="text-6xl mb-2">😢</span>
+                    <span className="text-red-500 font-bold text-xl">إجابة خاطئة!</span>
+                    {question.type === QuestionType.INPUT ? (
+                        <span className="text-sm font-bold text-slate-600 mt-2">الإجابة الصحيحة: {question.correctAnswerText}</span>
+                    ) : (
+                         <span className="text-sm text-slate-400 mt-1">حظ أوفر المرة القادمة</span>
+                    )}
+                </div>
             )}
         </div>
       )}
