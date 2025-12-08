@@ -103,6 +103,30 @@ const App = () => {
       localStorage.setItem('noah_answered_ids', JSON.stringify(answeredQuestionIds));
   }, [answeredQuestionIds]);
 
+  // Helper function to show System Notification
+  const sendSystemNotification = (title: string, body: string) => {
+    if (!("Notification" in window)) return;
+
+    if (Notification.permission === "granted") {
+      try {
+        const notification = new Notification(title, {
+          body: body,
+          icon: '/vite.svg', // Assuming vite.svg exists or browser default
+          vibrate: [200, 100, 200], // Vibration pattern
+          tag: 'noah-app-alert', // Prevents spamming too many separate notifications
+          requireInteraction: true // Keeps notification visible until clicked (Desktop)
+        } as any);
+        
+        notification.onclick = function() {
+          window.focus();
+          notification.close();
+        };
+      } catch (e) {
+        console.error("Notification Error:", e);
+      }
+    }
+  };
+
   // ---------------------------------------------------------
   // FIREBASE CONNECTION & SYNC
   // ---------------------------------------------------------
@@ -152,10 +176,14 @@ const App = () => {
             setActiveLiveQuestion(data || null);
             setConnectionError('');
             
-            // Notification Logic (Sound/Vibrate) for Questions
+            // Notification Logic (Sound/Vibrate/System Notification) for Questions
             if (data && data.id && data.id !== prevQuestionId.current) {
                 playNotificationSound();
-                if (navigator.vibrate) navigator.vibrate([300, 100, 300]);
+                
+                // System Notification (Top of Phone)
+                sendSystemNotification("⚡ سؤال جديد!", data.text);
+                
+                if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 500]);
             }
             prevQuestionId.current = data ? data.id : null;
         }, (error) => {
@@ -172,6 +200,10 @@ const App = () => {
             if (cmd && cmd.timestamp !== prevCommandTime.current) {
                 // Play alert sound for command
                 playAlertSound();
+                
+                // System Notification (Top of Phone)
+                sendSystemNotification("📣 تنبيه من القائد", cmd.text);
+
                 if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 500]);
                 prevCommandTime.current = cmd.timestamp;
             } else if (!cmd) {
@@ -301,6 +333,13 @@ const App = () => {
     localStorage.setItem('noah_user_session', JSON.stringify(u));
     setView(View.HOME);
     if (db) set(ref(db, 'users/' + u.id), u).catch(console.error);
+    
+    // Request Notification Permission on Login
+    if ("Notification" in window) {
+        Notification.requestPermission().then(permission => {
+            console.log("Notification permission:", permission);
+        });
+    }
   };
 
   const handleLogout = () => {
