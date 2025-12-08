@@ -16,6 +16,7 @@ export interface User {
   score: number;
   isAdmin: boolean;
   tripCode: string;
+  hasSpunWheel?: boolean; // New flag to track wheel usage
 }
 
 export enum QuestionType {

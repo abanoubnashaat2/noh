@@ -189,11 +189,14 @@ const App = () => {
                 
                 if (user) {
                     const myData = usersList.find(u => u.id === user.id);
-                    if (myData && myData.score !== score) {
-                        setScore(myData.score);
-                        const updatedLocal = { ...user, score: myData.score };
-                        localStorage.setItem('noah_user_session', JSON.stringify(updatedLocal));
-                        setUser(updatedLocal);
+                    if (myData) {
+                        // Sync local score and wheel status if changed remotely
+                        if (myData.score !== score || myData.hasSpunWheel !== user.hasSpunWheel) {
+                            setScore(myData.score);
+                            const updatedLocal = { ...user, score: myData.score, hasSpunWheel: myData.hasSpunWheel };
+                            localStorage.setItem('noah_user_session', JSON.stringify(updatedLocal));
+                            setUser(updatedLocal);
+                        }
                     }
                 }
             } else {
@@ -325,6 +328,27 @@ const App = () => {
             setView(View.HOME);
         }, 2500);
     }
+  };
+
+  // Specific handler for Wheel to mark it as used
+  const handleSpinWin = (points: number) => {
+      if (!user) return;
+      const newScore = score + points;
+      setScore(newScore);
+      
+      const updatedUser = { ...user, score: newScore, hasSpunWheel: true };
+      setUser(updatedUser);
+      localStorage.setItem('noah_user_session', JSON.stringify(updatedUser));
+      
+      if (db) {
+          update(ref(db, 'users/' + user.id), { score: newScore, hasSpunWheel: true });
+      } else {
+          setLeaderboardData(prev => prev.map(u => u.id === user.id ? updatedUser : u));
+      }
+      
+      setShowSpinWheel(false);
+      // Wait a bit before showing alert so the wheel animation settle doesn't feel abrupt
+      setTimeout(() => alert(`مبروك! ربحت ${points} نقطة!`), 300);
   };
 
   const playFeedbackSound = (type: 'correct' | 'wrong') => {
@@ -500,11 +524,13 @@ const App = () => {
   }
 
   const renderContent = () => {
-    if (showSpinWheel) return <SpinWheel onWin={(pts) => { alert(`مبروك! ربحت ${pts} نقطة!`); handleScoreUpdate(pts); setShowSpinWheel(false); }} onClose={() => setShowSpinWheel(false)} />;
+    // Only show wheel if not already spun (checked before opening)
+    if (showSpinWheel) return <SpinWheel onWin={handleSpinWin} onClose={() => setShowSpinWheel(false)} />;
 
     switch (view) {
       case View.HOME:
         const isCurrentQuestionAnswered = activeLiveQuestion && answeredQuestionIds.includes(activeLiveQuestion.id);
+        const hasSpun = user?.hasSpunWheel;
 
         return (
           <div className="p-4 flex flex-col gap-4 h-full content-start relative">
@@ -562,7 +588,19 @@ const App = () => {
                     <span className="text-5xl mb-2">⚡</span>
                     <span className="font-bold text-slate-700">المسابقة</span>
                 </button>
-                <button onClick={() => setShowSpinWheel(true)} className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center gap-2 hover:bg-slate-50 transition-all active:scale-95"><span className="text-5xl mb-2">🎡</span><span className="font-bold text-slate-700">عجلة الحظ</span></button>
+                <button 
+                    onClick={() => {
+                        if (hasSpun) {
+                            alert("لقد استخدمت عجلة الحظ بالفعل! 🚫");
+                        } else {
+                            setShowSpinWheel(true);
+                        }
+                    }} 
+                    className={`bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col items-center gap-2 transition-all ${hasSpun ? 'opacity-50 grayscale cursor-not-allowed' : 'hover:bg-slate-50 active:scale-95'}`}
+                >
+                    <span className="text-5xl mb-2">{hasSpun ? '🔒' : '🎡'}</span>
+                    <span className="font-bold text-slate-700">{hasSpun ? 'تم الاستخدام' : 'عجلة الحظ'}</span>
+                </button>
              </div>
              
              {/* Messaging Button */}
