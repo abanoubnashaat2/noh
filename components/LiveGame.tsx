@@ -2,18 +2,17 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Question, QuestionType } from '../types';
 
 interface LiveGameProps {
-  question: Question | null;
-  onAnswer: (points: number) => void;
+  questions: Question[]; // Changed from single question to array
+  onAnswer: (points: number, questionId: string) => void;
   isAdmin?: boolean;
   onPlaySound?: (type: 'correct' | 'wrong') => void;
-  isAlreadyAnswered?: boolean;
+  onComplete?: () => void;
 }
 
-const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlaySound, isAlreadyAnswered }) => {
-  const [timeLeft, setTimeLeft] = useState(30); // Increased default time for typing
+const LiveGame: React.FC<LiveGameProps> = ({ questions, onAnswer, onPlaySound, onComplete }) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(30);
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
-  
-  // For Input Type
   const [textAnswer, setTextAnswer] = useState('');
   
   const [hasAnswered, setHasAnswered] = useState(false);
@@ -22,10 +21,12 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
   
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const currentQuestion = questions[currentIndex];
+
   useEffect(() => {
-    // Reset state when new question arrives
-    if (question) {
-      const initialTime = question.type === QuestionType.INPUT ? 45 : 15; // More time for typing
+    // Reset state when question changes
+    if (currentQuestion) {
+      const initialTime = currentQuestion.type === QuestionType.INPUT ? 45 : 20; 
       setTimeLeft(initialTime);
       setSelectedOption(null);
       setTextAnswer('');
@@ -33,105 +34,111 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
       setShowResult(false);
       setIsCorrectInput(false);
 
+      if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
         setTimeLeft((prev) => {
           if (prev <= 1) {
             if (timerRef.current) clearInterval(timerRef.current);
-            setShowResult(true);
+            handleTimeUp();
             return 0;
           }
           return prev - 1;
         });
       }, 1000);
     } else {
-        if (timerRef.current) clearInterval(timerRef.current);
+        // No more questions
+        if (onComplete) onComplete();
     }
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [question?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex, questions]); // Re-run when index changes or new batch loaded
 
-  const isLocked = isAlreadyAnswered && !hasAnswered;
+  const handleNext = () => {
+      if (currentIndex < questions.length - 1) {
+          setCurrentIndex(prev => prev + 1);
+      } else {
+          if (onComplete) onComplete();
+      }
+  };
+
+  const handleTimeUp = () => {
+      setHasAnswered(true);
+      setShowResult(true);
+      // Auto advance after delay if user didn't answer
+      setTimeout(handleNext, 2500);
+  };
 
   const handleOptionClick = (index: number) => {
-    if (hasAnswered || timeLeft === 0 || !question) return;
+    if (hasAnswered || timeLeft === 0 || !currentQuestion) return;
 
     setHasAnswered(true);
     setSelectedOption(index);
     if (timerRef.current) clearInterval(timerRef.current);
 
-    const isCorrect = index === question.correctIndex;
+    const isCorrect = index === currentQuestion.correctIndex;
 
     if (onPlaySound) onPlaySound(isCorrect ? 'correct' : 'wrong');
 
     let points = 0;
     if (isCorrect) {
-      const timeTaken = 15 - timeLeft;
-      points = Math.max(10, 100 - (timeTaken * 5));
+      const timeTaken = 20 - timeLeft;
+      points = Math.max(10, currentQuestion.points - (timeTaken * 2)); // Simple decay
     }
 
-    setTimeout(() => {
-        setShowResult(true);
-        onAnswer(isCorrect ? points : 0);
-    }, 1000);
+    setShowResult(true);
+    onAnswer(isCorrect ? points : 0, currentQuestion.id);
+    
+    // Auto Advance
+    setTimeout(handleNext, 2500);
   };
 
   const handleInputSubmit = (e: React.FormEvent) => {
       e.preventDefault();
-      if (hasAnswered || timeLeft === 0 || !question) return;
+      if (hasAnswered || timeLeft === 0 || !currentQuestion) return;
       if (!textAnswer.trim()) return;
 
       setHasAnswered(true);
       if (timerRef.current) clearInterval(timerRef.current);
 
-      // Validation Logic
-      const expected = question.correctAnswerText?.trim().toLowerCase();
+      const expected = currentQuestion.correctAnswerText?.trim().toLowerCase();
       const actual = textAnswer.trim().toLowerCase();
-      
       const isCorrect = expected === actual;
       setIsCorrectInput(isCorrect);
 
       if (onPlaySound) onPlaySound(isCorrect ? 'correct' : 'wrong');
 
       let points = 0;
-      if (isCorrect) {
-          // Slightly simpler scoring for text
-          points = question.points; 
-      }
+      if (isCorrect) points = currentQuestion.points;
 
-      setTimeout(() => {
-          setShowResult(true);
-          onAnswer(isCorrect ? points : 0);
-      }, 1000);
+      setShowResult(true);
+      onAnswer(isCorrect ? points : 0, currentQuestion.id);
+
+      // Auto Advance
+      setTimeout(handleNext, 2500);
   };
 
-  if (isLocked) {
-      return (
-        <div className="flex flex-col items-center justify-center h-full p-6 text-center animate-fade-in">
-          <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mb-6 shadow-inner border border-slate-200">
-               <span className="text-5xl">🔒</span>
-          </div>
-          <h2 className="text-xl font-bold text-slate-800 mb-2">تمت الإجابة على هذا السؤال</h2>
-          <p className="text-slate-500 text-sm mb-6">انتظر السؤال التالي من القائد...</p>
-        </div>
-      );
-  }
-
-  if (!question) {
+  if (!currentQuestion) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-slate-500 animate-pulse">
-        <div className="text-6xl mb-4">⏳</div>
-        <p className="text-lg font-medium">في انتظار سؤال القائد...</p>
-        <p className="text-sm mt-2">كن مستعداً!</p>
+        <div className="text-6xl mb-4">✅</div>
+        <p className="text-lg font-medium">أنهيت جميع الأسئلة!</p>
       </div>
     );
   }
 
-  const maxTime = question.type === QuestionType.INPUT ? 45 : 15;
+  const maxTime = currentQuestion.type === QuestionType.INPUT ? 45 : 20;
 
   return (
     <div className="flex flex-col h-full p-4">
+      {/* Header Info */}
+      <div className="flex justify-between items-center mb-4 text-xs font-bold text-slate-500">
+          <span>سؤال {currentIndex + 1} من {questions.length}</span>
+          <span>النقاط: {currentQuestion.points}</span>
+      </div>
+
       {/* Timer Bar */}
       <div className="w-full h-4 bg-gray-200 rounded-full overflow-hidden mb-6 relative">
         <div 
@@ -143,15 +150,19 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
         </span>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 flex-grow flex flex-col justify-center border-t-4 border-primary">
-        <h2 className="text-xl font-bold text-center text-slate-800 mb-2">{question.text}</h2>
-        <div className="text-center text-sm text-slate-400">
-            {question.type === QuestionType.INPUT ? 'سؤال مباشر - اكتب الإجابة' : 'سؤال سرعة 🔥'}
+      <div className="bg-white rounded-2xl shadow-lg p-6 mb-6 flex-grow flex flex-col justify-center border-t-4 border-primary relative overflow-hidden">
+        {/* Progress Watermark */}
+        <div className="absolute top-2 right-2 text-6xl opacity-5 font-black z-0">
+            {currentIndex + 1}
+        </div>
+
+        <h2 className="text-xl font-bold text-center text-slate-800 mb-2 relative z-10">{currentQuestion.text}</h2>
+        <div className="text-center text-sm text-slate-400 relative z-10">
+            {currentQuestion.type === QuestionType.INPUT ? 'سؤال مباشر - اكتب الإجابة' : 'اختر الإجابة الصحيحة'}
         </div>
       </div>
 
-      {question.type === QuestionType.INPUT ? (
-          // Input Interface
+      {currentQuestion.type === QuestionType.INPUT ? (
           <form onSubmit={handleInputSubmit} className="flex flex-col gap-4">
               <input 
                 type="text" 
@@ -177,13 +188,12 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
               )}
           </form>
       ) : (
-          // Multiple Choice Interface
           <div className="grid grid-cols-1 gap-3">
-            {question.options.map((option, idx) => {
+            {currentQuestion.options.map((option, idx) => {
               let stateClass = "bg-white border-2 border-slate-100 text-slate-700";
               
               if (showResult) {
-                if (idx === question.correctIndex) {
+                if (idx === currentQuestion.correctIndex) {
                   stateClass = "bg-green-100 border-green-500 text-green-800";
                 } else if (idx === selectedOption) {
                   stateClass = "bg-red-100 border-red-500 text-red-800";
@@ -210,23 +220,21 @@ const LiveGame: React.FC<LiveGameProps> = ({ question, onAnswer, isAdmin, onPlay
 
       {showResult && (
         <div className="mt-6 text-center animate-bounce">
-            {(question.type === QuestionType.INPUT ? isCorrectInput : selectedOption === question.correctIndex) ? (
+            {(currentQuestion.type === QuestionType.INPUT ? isCorrectInput : selectedOption === currentQuestion.correctIndex) ? (
                  <div className="flex flex-col items-center">
-                    <span className="text-6xl mb-2">🎉</span>
-                    <span className="text-green-600 font-bold text-xl">إجابة صحيحة!</span>
-                    {question.type === QuestionType.INPUT && <span className="text-xs text-slate-400 mt-1">الإجابة: {question.correctAnswerText}</span>}
+                    <span className="text-4xl mb-1">🎉</span>
+                    <span className="text-green-600 font-bold">إجابة صحيحة!</span>
                  </div>
             ) : (
                 <div className="flex flex-col items-center">
-                    <span className="text-6xl mb-2">😢</span>
-                    <span className="text-red-500 font-bold text-xl">إجابة خاطئة!</span>
-                    {question.type === QuestionType.INPUT ? (
-                        <span className="text-sm font-bold text-slate-600 mt-2">الإجابة الصحيحة: {question.correctAnswerText}</span>
-                    ) : (
-                         <span className="text-sm text-slate-400 mt-1">حظ أوفر المرة القادمة</span>
+                    <span className="text-4xl mb-1">❌</span>
+                    <span className="text-red-500 font-bold">إجابة خاطئة!</span>
+                    {currentQuestion.type === QuestionType.INPUT && (
+                        <span className="text-xs text-slate-500 mt-1">الصحيح: {currentQuestion.correctAnswerText}</span>
                     )}
                 </div>
             )}
+            <div className="text-xs text-slate-400 mt-2">جاري الانتقال للسؤال التالي...</div>
         </div>
       )}
     </div>
