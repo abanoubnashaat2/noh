@@ -96,17 +96,6 @@ const App = () => {
       localStorage.setItem('noah_answered_ids', JSON.stringify(answeredQuestionIds));
   }, [answeredQuestionIds]);
 
-  // Handle Visibility Change (Reset Title when user comes back)
-  useEffect(() => {
-      const handleVisibilityChange = () => {
-          if (document.visibilityState === 'visible') {
-              document.title = "سفينة نوح"; // Reset title
-          }
-      };
-      document.addEventListener("visibilitychange", handleVisibilityChange);
-      return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, []);
-
   // Request Notification Permission Handler
   const requestNotificationAccess = () => {
     if (!("Notification" in window)) {
@@ -116,38 +105,34 @@ const App = () => {
     Notification.requestPermission().then(permission => {
         setNotificationPerm(permission);
         if (permission === 'granted') {
-            sendSystemNotification("✅ تم التفعيل", "ستصلك إشعارات عند بدء المسابقة!");
+            new Notification("تم تفعيل الإشعارات بنجاح! 🔔");
         }
     });
   };
 
   // Helper function to show System Notification
   const sendSystemNotification = (title: string, body: string) => {
-    // 1. Flash Title if hidden
-    if (document.hidden) {
-        document.title = `🔔 ${title}`;
-    }
+    if (!("Notification" in window)) return;
 
-    // 2. Vibrate (Android/Mobile)
+    // Trigger vibration (works on Android)
     if (navigator.vibrate) {
-        // Pattern: Vibrate 500ms, Pause 200ms, Vibrate 500ms
-        navigator.vibrate([500, 200, 500]);
+        navigator.vibrate([200, 100, 200, 100, 500]);
     }
 
-    // 3. Send Push Notification
-    if ("Notification" in window && Notification.permission === "granted") {
+    // Only send notification if permitted
+    if (Notification.permission === "granted") {
       try {
         const notification = new Notification(title, {
           body: body,
           icon: '/vite.svg', 
-          tag: 'noah-app-alert', // Updates existing notification instead of stacking
+          tag: 'noah-app-alert',
           requireInteraction: true,
-          silent: false
-        });
+          // Note: 'vibrate' property in Notification options is not supported in all browsers, 
+          // so we rely on navigator.vibrate above for the actual shake.
+        } as any);
         
         notification.onclick = function() {
           window.focus();
-          document.title = "سفينة نوح";
           notification.close();
         };
       } catch (e) {
@@ -203,7 +188,7 @@ const App = () => {
                         ? `بدأت مسابقة جديدة مكونة من ${questions.length} أسئلة!`
                         : `سؤال جديد: ${questions[0].text}`;
 
-                    // Send notification
+                    // Send notification even if app is in background
                     sendSystemNotification("⚡ مسابقة جديدة!", msg);
                     prevQuizId.current = currentBatchId;
                 }
@@ -322,7 +307,7 @@ const App = () => {
     setView(View.HOME);
     if (db) set(ref(db, 'users/' + u.id), u).catch(console.error);
     
-    // Attempt request on login automatically
+    // Attempt request on login
     if ("Notification" in window && Notification.permission === 'default') {
         Notification.requestPermission().then(setNotificationPerm);
     }
@@ -471,15 +456,15 @@ const App = () => {
 
              {/* Notification Request Banner */}
              {notificationPerm !== 'granted' && "Notification" in window && (
-                 <button onClick={requestNotificationAccess} className="bg-slate-800 text-white p-4 rounded-xl shadow-lg flex items-center justify-between cursor-pointer border-2 border-slate-600 animate-pulse w-full">
+                 <div onClick={requestNotificationAccess} className="bg-slate-800 text-white p-4 rounded-xl shadow-lg flex items-center justify-between cursor-pointer border-2 border-slate-600 animate-pulse">
                     <div className="flex items-center gap-3">
                         <span className="text-2xl">🔔</span>
-                        <div className="flex flex-col items-start">
-                            <span className="font-bold">تفعيل التنبيهات والاهتزاز</span>
-                            <span className="text-xs text-slate-300">اضغط هنا لاستقبال إشعارات المسابقة في الخلفية</span>
+                        <div className="flex flex-col">
+                            <span className="font-bold">تفعيل الإشعارات</span>
+                            <span className="text-xs text-slate-300">اضغط هنا لاستقبال تنبيهات المسابقة</span>
                         </div>
                     </div>
-                 </button>
+                 </div>
              )}
 
              {connectionError && <div className="bg-red-500 text-white p-3 rounded-xl text-sm shadow-md font-bold">{connectionError}</div>}
