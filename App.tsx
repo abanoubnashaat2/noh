@@ -79,6 +79,7 @@ const App = () => {
   // Sound & Notification Refs
   const prevQuizId = useRef<string | null>(null);
   const prevCommandTime = useRef<number | null>(null);
+  const wakeLockRef = useRef<any>(null);
 
   // Load user from local storage
   useEffect(() => {
@@ -96,6 +97,35 @@ const App = () => {
       localStorage.setItem('noah_answered_ids', JSON.stringify(answeredQuestionIds));
   }, [answeredQuestionIds]);
 
+  // Handle Visibility & Wake Lock (Keep Screen On logic)
+  useEffect(() => {
+      const requestWakeLock = async () => {
+        if ('wakeLock' in navigator && user) {
+          try {
+            wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+            console.log('Wake Lock active: Screen will stay on to keep connection.');
+          } catch (err) {
+            console.log('Wake Lock Error:', err);
+          }
+        }
+      };
+
+      const handleVisibilityChange = () => {
+          if (document.visibilityState === 'visible') {
+              document.title = "سفينة نوح"; // Reset title
+              requestWakeLock(); // Re-acquire lock if lost during switch
+          }
+      };
+      
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+      if (user) requestWakeLock();
+
+      return () => {
+          document.removeEventListener("visibilitychange", handleVisibilityChange);
+          if (wakeLockRef.current) wakeLockRef.current.release();
+      };
+  }, [user]);
+
   // Request Notification Permission Handler
   const requestNotificationAccess = () => {
     if (!("Notification" in window)) {
@@ -105,31 +135,46 @@ const App = () => {
     Notification.requestPermission().then(permission => {
         setNotificationPerm(permission);
         if (permission === 'granted') {
-            new Notification("تم تفعيل الإشعارات بنجاح! 🔔");
+            // Test Notification
+            sendSystemNotification("✅ تم التفعيل", "ستصلك إشعارات عند بدء المسابقة!");
+            playNotificationSound();
         }
     });
   };
 
   // Helper function to show System Notification
   const sendSystemNotification = (title: string, body: string) => {
-    if (!("Notification" in window)) return;
-
-    // Trigger vibration (works on Android)
-    if (navigator.vibrate) {
-        navigator.vibrate([200, 100, 200, 100, 500]);
+    // 1. Flash Title if hidden
+    if (document.hidden) {
+        let flashState = false;
+        const flashInterval = setInterval(() => {
+            document.title = flashState ? `🔔 ${title}` : "سفينة نوح";
+            flashState = !flashState;
+            if (document.visibilityState === 'visible') {
+                clearInterval(flashInterval);
+                document.title = "سفينة نوح";
+            }
+        }, 1000);
+        // Clear interval after 10 seconds to stop annoyance
+        setTimeout(() => clearInterval(flashInterval), 10000);
     }
 
-    // Only send notification if permitted
-    if (Notification.permission === "granted") {
+    // 2. Vibrate (Android/Mobile)
+    if (navigator.vibrate) {
+        // Distinct Pattern: Vibrate 500ms, Pause 100ms, Vibrate 500ms...
+        navigator.vibrate([500, 100, 500, 100, 1000]);
+    }
+
+    // 3. Send Push Notification (Browser Native)
+    if ("Notification" in window && Notification.permission === "granted") {
       try {
         const notification = new Notification(title, {
           body: body,
           icon: '/vite.svg', 
           tag: 'noah-app-alert',
           requireInteraction: true,
-          // Note: 'vibrate' property in Notification options is not supported in all browsers, 
-          // so we rely on navigator.vibrate above for the actual shake.
-        } as any);
+          silent: false // We play our own sound to ensure it works
+        });
         
         notification.onclick = function() {
           window.focus();
@@ -182,13 +227,14 @@ const App = () => {
             if (questions && questions.length > 0) {
                 const currentBatchId = questions.map(q => q.id).join(',');
                 if (currentBatchId !== prevQuizId.current) {
+                    
+                    // Trigger Alerts
                     playNotificationSound();
                     
                     const msg = questions.length > 1 
                         ? `بدأت مسابقة جديدة مكونة من ${questions.length} أسئلة!`
                         : `سؤال جديد: ${questions[0].text}`;
 
-                    // Send notification even if app is in background
                     sendSystemNotification("⚡ مسابقة جديدة!", msg);
                     prevQuizId.current = currentBatchId;
                 }
@@ -248,24 +294,32 @@ const App = () => {
   // Persist Questions
   useEffect(() => { localStorage.setItem('noah_questions_v1', JSON.stringify(questionsList)); }, [questionsList]);
 
-  // Sound Helpers
+  // Sound Helpers (Improved for background/sleep contexts)
   const playNotificationSound = () => {
      try {
          const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
          if (!AudioContext) return;
          const ctx = new AudioContext();
+         
+         // Attempt to resume if suspended (critical for mobile background)
+         if (ctx.state === 'suspended') ctx.resume();
+
          const osc = ctx.createOscillator();
          const gain = ctx.createGain();
          osc.connect(gain);
          gain.connect(ctx.destination);
+         
+         // High pitched attention grabber
          osc.type = 'sine';
-         osc.frequency.setValueAtTime(800, ctx.currentTime);
-         osc.frequency.linearRampToValueAtTime(1200, ctx.currentTime + 0.1);
-         gain.gain.setValueAtTime(0.5, ctx.currentTime);
-         gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+         osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
+         osc.frequency.linearRampToValueAtTime(1760, ctx.currentTime + 0.1); // A6
+         
+         gain.gain.setValueAtTime(0.8, ctx.currentTime);
+         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
+         
          osc.start();
-         osc.stop(ctx.currentTime + 0.5);
-     } catch (e) { console.error(e); }
+         osc.stop(ctx.currentTime + 0.8);
+     } catch (e) { console.error("Sound Error", e); }
   };
 
   const playAlertSound = () => {
@@ -273,20 +327,27 @@ const App = () => {
         const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
         if (!AudioContext) return;
         const ctx = new AudioContext();
+        if (ctx.state === 'suspended') ctx.resume();
+
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.connect(gain);
         gain.connect(ctx.destination);
+        
+        // Siren like sound
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(400, ctx.currentTime);
-        osc.frequency.linearRampToValueAtTime(600, ctx.currentTime + 0.3);
-        osc.frequency.linearRampToValueAtTime(400, ctx.currentTime + 0.6);
-        gain.gain.setValueAtTime(0.3, ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.9);
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1.2);
+        osc.frequency.linearRampToValueAtTime(600, ctx.currentTime + 0.2);
+        osc.frequency.linearRampToValueAtTime(400, ctx.currentTime + 0.4);
+        osc.frequency.linearRampToValueAtTime(600, ctx.currentTime + 0.6);
+        
+        gain.gain.setValueAtTime(0.5, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + 0.8);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2);
+        
         osc.start();
         osc.stop(ctx.currentTime + 1.2);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error("Sound Error", e); }
   };
 
   // Handlers
@@ -307,7 +368,7 @@ const App = () => {
     setView(View.HOME);
     if (db) set(ref(db, 'users/' + u.id), u).catch(console.error);
     
-    // Attempt request on login
+    // Attempt request on login automatically
     if ("Notification" in window && Notification.permission === 'default') {
         Notification.requestPermission().then(setNotificationPerm);
     }
@@ -456,15 +517,15 @@ const App = () => {
 
              {/* Notification Request Banner */}
              {notificationPerm !== 'granted' && "Notification" in window && (
-                 <div onClick={requestNotificationAccess} className="bg-slate-800 text-white p-4 rounded-xl shadow-lg flex items-center justify-between cursor-pointer border-2 border-slate-600 animate-pulse">
+                 <button onClick={requestNotificationAccess} className="bg-slate-800 text-white p-4 rounded-xl shadow-lg flex items-center justify-between cursor-pointer border-2 border-slate-600 animate-pulse w-full">
                     <div className="flex items-center gap-3">
                         <span className="text-2xl">🔔</span>
-                        <div className="flex flex-col">
-                            <span className="font-bold">تفعيل الإشعارات</span>
-                            <span className="text-xs text-slate-300">اضغط هنا لاستقبال تنبيهات المسابقة</span>
+                        <div className="flex flex-col items-start">
+                            <span className="font-bold">تفعيل التنبيهات والاهتزاز</span>
+                            <span className="text-xs text-slate-300">اضغط هنا لاستقبال إشعارات المسابقة في الخلفية</span>
                         </div>
                     </div>
-                 </div>
+                 </button>
              )}
 
              {connectionError && <div className="bg-red-500 text-white p-3 rounded-xl text-sm shadow-md font-bold">{connectionError}</div>}
